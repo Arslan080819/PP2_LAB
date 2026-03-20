@@ -1,0 +1,3 @@
+Keyboard,6
+Headphones,8
+Mouse,1
