@@ -29,7 +29,8 @@ def insert_from_console():
     surname = input("Last name (leave blank if none): ")
     phone = input("Phone: ")
     
-    conn, cursor = get_connection()
+    conn = get_connection()          # Тек байланыс аламыз
+    cursor = conn.cursor()           # Курсорды байланыстан аламыз
     try:
         cursor.execute(
             "INSERT INTO contacts (name, surname, phone) VALUES (%s, %s, %s)",
@@ -43,7 +44,6 @@ def insert_from_console():
     finally:
         cursor.close()
         conn.close()
-
 
 def _print_rows(rows):
     if not rows:
@@ -173,29 +173,32 @@ def delete_contact():
     finally:
         conn.close()
 
-
 def insert_from_csv(path):
     conn = get_connection()
-    cur = conn.cursor()
-
+    cursor = conn.cursor()
+    
     try:
         with open(path, newline='', encoding='utf-8') as f:
             reader = csv.reader(f)
-            next(reader)  # пропустить header
-
+            next(reader)  # заголовокты өткізіп жіберу
+            
             for row in reader:
-                cur.execute(
-                    "INSERT INTO contacts (name, phone) VALUES (%s, %s)",
-                    (row[0], row[1])
-                )
-
+                name = row[0].strip()
+                surname = row[1].strip() if len(row) > 1 else None
+                phone = row[2].strip() if len(row) > 2 else None
+                
+                if name and phone:
+                    cursor.execute(
+                        "INSERT INTO contacts (name, surname, phone) VALUES (%s, %s, %s)",
+                        (name, surname, phone)
+                    )
         conn.commit()
-        print("✅ CSV импортирован")
-
+        print("✅ CSV импортталды")
     except Exception as e:
         print("❌ Ошибка:", e)
-
+        conn.rollback()
     finally:
+        cursor.close()
         conn.close()
 def menu():
     create_table()
