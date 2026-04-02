@@ -1,36 +1,14 @@
-
 import csv
+import psycopg2
 from connect import DatabaseConnection, create_table, get_connection
 
-
-
 def insert_from_console():
     name = input("First name: ")
     surname = input("Last name (leave blank if none): ")
     phone = input("Phone: ")
     
-    conn, cursor = get_connection()
-    try:
-        cursor.execute(
-            "INSERT INTO contacts (name, surname, phone) VALUES (%s, %s, %s)",
-            (name, surname, phone)
-        )
-        conn.commit()
-        print("✅ Contact added successfully!")
-    except Exception as e:
-        conn.rollback()
-        print(f"❌ Error: {e}")
-    finally:
-        conn.close()
-
-
-def insert_from_console():
-    name = input("First name: ")
-    surname = input("Last name (leave blank if none): ")
-    phone = input("Phone: ")
-    
-    conn = get_connection()          # Тек байланыс аламыз
-    cursor = conn.cursor()           # Курсорды байланыстан аламыз
+    conn = get_connection()
+    cursor = conn.cursor()
     try:
         cursor.execute(
             "INSERT INTO contacts (name, surname, phone) VALUES (%s, %s, %s)",
@@ -54,19 +32,14 @@ def _print_rows(rows):
     for r in rows:
         print(f"  {r[0]:<5} {r[1]:<15} {(r[2] or ''):<15} {r[3]:<20}")
 
-
 def search_all():
     conn = get_connection()
     cur = conn.cursor()
-
     cur.execute("SELECT * FROM contacts")
     rows = cur.fetchall()
-
     for row in rows:
         print(row)
-
     conn.close()
-
 
 def search_by_name(name: str):
     conn = get_connection()
@@ -82,7 +55,6 @@ def search_by_name(name: str):
     finally:
         conn.close()
 
-
 def search_by_phone_prefix(prefix: str):
     conn = get_connection()
     try:
@@ -97,10 +69,7 @@ def search_by_phone_prefix(prefix: str):
     finally:
         conn.close()
 
-
-
 def update_by_phone():
-    
     phone = input("Enter the phone number of the contact to update: ").strip()
     conn = get_connection()
     try:
@@ -148,8 +117,6 @@ def update_by_phone():
     finally:
         conn.close()
 
-
-
 def delete_contact():
     print("Delete by:")
     print("  1. Username (first name)")
@@ -176,30 +143,37 @@ def delete_contact():
 def insert_from_csv(path):
     conn = get_connection()
     cursor = conn.cursor()
-    
+    inserted = 0
+    skipped = 0
     try:
-        with open(path, newline='', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            next(reader)  # заголовокты өткізіп жіберу
-            
-            for row in reader:
-                name = row[0].strip()
-                surname = row[1].strip() if len(row) > 1 else None
-                phone = row[2].strip() if len(row) > 2 else None
-                
-                if name and phone:
-                    cursor.execute(
-                        "INSERT INTO contacts (name, surname, phone) VALUES (%s, %s, %s)",
-                        (name, surname, phone)
-                    )
+        with open(path, 'r', encoding='utf-8') as f:
+            next(f)
+            for line in f:
+                parts = line.strip().split(',')
+                if len(parts) >= 3:
+                    name = parts[0].strip()
+                    surname = parts[1].strip() if parts[1] else None
+                    phone = parts[2].strip()
+                    if not name or not phone:
+                        skipped += 1
+                        continue
+                    try:
+                        cursor.execute(
+                            "INSERT INTO contacts (name, surname, phone) VALUES (%s, %s, %s)",
+                            (name, surname, phone)
+                        )
+                        inserted += 1
+                    except Exception:
+                        skipped += 1
         conn.commit()
-        print("✅ CSV импортталды")
+        print(f"✅ CSV импортталды: {inserted} қосылды, {skipped} өткізілді")
     except Exception as e:
-        print("❌ Ошибка:", e)
+        print(f"❌ Ошибка: {e}")
         conn.rollback()
     finally:
         cursor.close()
         conn.close()
+
 def menu():
     create_table()
     while True:
@@ -237,7 +211,6 @@ def menu():
             break
         else:
             print("[ERROR] Unknown option.")
-
 
 if __name__ == "__main__":
     menu()
