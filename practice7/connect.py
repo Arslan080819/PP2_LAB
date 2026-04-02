@@ -65,6 +65,4 @@ def create_table():
     finally:
         db.disconnect()
 def get_connection():
-    db = DatabaseConnection()
-    db.connect()
-    return db.conn, db.cursor
+    return psycopg2.connect(**DB_CONFIG)

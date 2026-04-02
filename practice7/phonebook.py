@@ -57,12 +57,15 @@ def _print_rows(rows):
 
 def search_all():
     conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, firstname, lastname, phone FROM phonebook ORDER BY firstname")
-            _print_rows(cur.fetchall())
-    finally:
-        conn.close()
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM contacts")
+    rows = cur.fetchall()
+
+    for row in rows:
+        print(row)
+
+    conn.close()
 
 
 def search_by_name(name: str):
@@ -70,9 +73,9 @@ def search_by_name(name: str):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, firstname, lastname, phone FROM phonebook
-                   WHERE firstname ILIKE %s OR lastname ILIKE %s
-                   ORDER BY firstname""",
+                """SELECT id, name, surname, phone FROM contacts
+                   WHERE name ILIKE %s OR surname ILIKE %s
+                   ORDER BY name""",
                 (f"%{name}%", f"%{name}%")
             )
             _print_rows(cur.fetchall())
@@ -85,7 +88,7 @@ def search_by_phone_prefix(prefix: str):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """SELECT id, firstname, lastname, phone FROM phonebook
+                """SELECT id, name, surname, phone FROM contacts
                    WHERE phone LIKE %s
                    ORDER BY phone""",
                 (f"{prefix}%",)
@@ -103,7 +106,7 @@ def update_by_phone():
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, firstname, lastname, phone FROM phonebook WHERE phone = %s",
+                "SELECT id, name, surname, phone FROM contacts WHERE phone = %s",
                 (phone,)
             )
             row = cur.fetchone()
@@ -120,10 +123,10 @@ def update_by_phone():
 
         if choice == "1":
             new_val = input("New first name: ").strip()
-            field = "firstname"
+            field = "name"
         elif choice == "2":
             new_val = input("New last name: ").strip()
-            field = "lastname"
+            field = "surname"
         elif choice == "3":
             new_val = input("New phone: ").strip()
             field = "phone"
@@ -138,7 +141,7 @@ def update_by_phone():
         with conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"UPDATE phonebook SET {field} = %s WHERE phone = %s",
+                    f"UPDATE contacts SET {field} = %s WHERE phone = %s",
                     (new_val, phone)
                 )
         print("[OK] Contact updated.")
@@ -159,10 +162,10 @@ def delete_contact():
             with conn.cursor() as cur:
                 if choice == "1":
                     name = input("First name to delete: ").strip()
-                    cur.execute("DELETE FROM phonebook WHERE firstname ILIKE %s", (name,))
+                    cur.execute("DELETE FROM contacts WHERE name ILIKE %s", (name,))
                 elif choice == "2":
                     phone = input("Phone to delete: ").strip()
-                    cur.execute("DELETE FROM phonebook WHERE phone = %s", (phone,))
+                    cur.execute("DELETE FROM contacts WHERE phone = %s", (phone,))
                 else:
                     print("[ERROR] Invalid choice.")
                     return
@@ -171,11 +174,33 @@ def delete_contact():
         conn.close()
 
 
+def insert_from_csv(path):
+    conn = get_connection()
+    cur = conn.cursor()
 
+    try:
+        with open(path, newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader)  # пропустить header
+
+            for row in reader:
+                cur.execute(
+                    "INSERT INTO contacts (name, phone) VALUES (%s, %s)",
+                    (row[0], row[1])
+                )
+
+        conn.commit()
+        print("✅ CSV импортирован")
+
+    except Exception as e:
+        print("❌ Ошибка:", e)
+
+    finally:
+        conn.close()
 def menu():
     create_table()
     while True:
-        print("\n═══════════ PhoneBook ═══════════")
+        print("\n═══════════ contacts ═══════════")
         print(" 1. Import contacts from CSV")
         print(" 2. Add contact (console)")
         print(" 3. Show all contacts")
