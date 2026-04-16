@@ -10,19 +10,16 @@ def _print_rows(rows):
     print()
 
 
-
 def search_by_pattern():
     pattern = input("Enter search pattern (part of name or phone): ").strip()
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # search_by_pattern PostgreSQL функциясын қолданады
             cur.execute("SELECT * FROM search_by_pattern(%s)", (pattern,))
             _print_rows(cur.fetchall())
     finally:
         conn.close()
-
-
-
 
 def upsert_one():
     firstname = input("First name : ").strip()
@@ -35,65 +32,93 @@ def upsert_one():
 
     conn = get_connection()
     try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "CALL upsert_contact(%s, %s, %s)",
-                    (firstname, lastname or None, phone)
-                )
+        with conn.cursor() as cur:
+            # upsert_contact PostgreSQL функциясын шақыру
+            cur.execute("SELECT upsert_contact(%s, %s, %s)", (firstname, lastname or None, phone))
+            conn.commit()
         print("[OK] Contact saved (inserted or updated).")
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        conn.rollback()
     finally:
         conn.close()
-
-
 
 def bulk_insert():
     print("Enter contacts one by one. Leave first name blank to stop.")
-    firstnames, lastnames, phones = [], [], []
-
+    contacts = []
+    
     while True:
-        fn = input("  First name (blank to finish): ").strip()
-        if not fn:
+        firstname = input("  First name (blank to finish): ").strip()
+        if not firstname:
             break
-        ln = input("  Last name : ").strip()
-        ph = input("  Phone     : ").strip()
-        firstnames.append(fn)
-        lastnames.append(ln)
-        phones.append(ph)
-
-    if not firstnames:
+        
+        lastname = input("  Last name : ").strip()
+        phone = input("  Phone     : ").strip()
+        
+        # Валидация
+        if not firstname or not phone:
+            print(f"  [WARN] First name and phone are required")
+            continue
+        if not phone.isdigit() or len(phone) < 10:
+            print(f"  [WARN] Invalid phone format: {phone}")
+            continue
+        
+        contacts.append({
+            'firstname': firstname,
+            'lastname': lastname if lastname else None,
+            'phone': phone
+        })
+    
+    if not contacts:
         print("[INFO] Nothing to insert.")
         return
-
+    
     conn = get_connection()
     try:
-        with conn:
-            with conn.cursor() as cur:
-                
-                cur.execute(
-                    "CALL bulk_insert_contacts(%s::text[], %s::text[], %s::text[], %s::text[])",
-                    (firstnames, lastnames, phones, [])
-                )
-               
-                row = cur.fetchone()
-                invalid = row[0] if row else []
-
-        if invalid:
-            print(f"\n[WARN] {len(invalid)} invalid phone number(s) were skipped:")
-            for entry in invalid:
-                print(f"  • {entry}")
-        else:
-            print("[OK] All contacts inserted/updated successfully.")
+        with conn.cursor() as cur:
+            success_count = 0
+            
+            for contact in contacts:
+                try:
+                    # search_by_pattern арқылы телефон бар ма тексереміз
+                    cur.execute("SELECT * FROM search_by_pattern(%s)", (contact['phone'],))
+                    existing = cur.fetchall()
+                    
+                    if existing:
+                        # Бар контактіні жаңарту үшін алдымен жоямыз сосын қосамыз
+                        for old in existing:
+                            # Жою үшін ID қолданамыз
+                            cur.execute("SELECT delete_contact_by_id(%s)", (old[0],))
+                        
+                        # Жаңасын қосу
+                        cur.execute("SELECT upsert_contact(%s, %s, %s)", 
+                                  (contact['firstname'], contact['lastname'], contact['phone']))
+                        print(f"  ✅ {contact['firstname']} {contact['lastname'] or ''} | {contact['phone']} - updated")
+                    else:
+                        # Жаңа контакт қосу
+                        cur.execute("SELECT upsert_contact(%s, %s, %s)", 
+                                  (contact['firstname'], contact['lastname'], contact['phone']))
+                        print(f"  ✅ {contact['firstname']} {contact['lastname'] or ''} | {contact['phone']} - inserted")
+                    
+                    success_count += 1
+                    conn.commit()
+                    
+                except Exception as e:
+                    print(f"  ❌ {contact['firstname']} | {contact['phone']} - error: {e}")
+                    conn.rollback()
+            
+            print(f"\n[OK] {success_count} contact(s) processed successfully.")
+            
+    except Exception as e:
+        print(f"\n[ERROR] {e}")
+        conn.rollback()
     finally:
         conn.close()
 
-
-
-
 def paginated_query():
     try:
-        limit  = int(input("Rows per page [5]: ").strip() or "5")
-        page   = int(input("Page number  [1]: ").strip() or "1")
+        limit = int(input("Rows per page [5]: ").strip() or "5")
+        page = int(input("Page number  [1]: ").strip() or "1")
     except ValueError:
         print("[ERROR] Please enter valid numbers.")
         return
@@ -102,47 +127,70 @@ def paginated_query():
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM get_contacts_paginated(%s, %s)",
-                (limit, offset)
-            )
+            # get_contacts_paginated PostgreSQL функциясын шақыру
+            cur.execute("SELECT * FROM get_contacts_paginated(%s, %s)", (limit, offset))
             rows = cur.fetchall()
         print(f"\n  Page {page} (limit={limit}, offset={offset})")
         _print_rows(rows)
     finally:
         conn.close()
 
-
-
-
 def delete_contact():
     print("Delete by:")
     print("  1. Name")
     print("  2. Phone")
     choice = input("Choice (1/2): ").strip()
-
-    if choice == "1":
-        value = input("First name to delete: ").strip()
-        search_type = "name"
-    elif choice == "2":
-        value = input("Phone to delete: ").strip()
-        search_type = "phone"
-    else:
-        print("[ERROR] Invalid choice.")
-        return
-
+    
     conn = get_connection()
     try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "CALL delete_contact(%s, %s)",
-                    (search_type, value)
-                )
-        print("[OK] Delete procedure executed.")
+        with conn.cursor() as cur:
+            if choice == '1':
+                name = input("First name to delete: ").strip()
+                confirm = input(f"Delete all contacts with name '{name}'? (y/n): ").strip().lower()
+                if confirm == 'y':
+                    # Бірінші іздеу арқылы контактілерді табу
+                    cur.execute("SELECT * FROM search_by_pattern(%s)", (name,))
+                    to_delete = cur.fetchall()
+                    
+                    if to_delete:
+                        # Әр контактіні ID бойынша жою
+                        for contact in to_delete:
+                            try:
+                                cur.execute("DELETE FROM phonebook WHERE id = %s", (contact[0],))
+                            except:
+                                # Егер тікелей DELETE жұмыс істемесе, басқа функция қолдану
+                                cur.execute("SELECT delete_contact_by_id(%s)", (contact[0],))
+                        conn.commit()
+                        print(f"\n✅ Deleted {len(to_delete)} contact(s):")
+                        for contact in to_delete:
+                            print(f"   - {contact[1]} {contact[2] or ''} | {contact[3]}")
+                    else:
+                        print(f"\n❌ No contacts found with name '{name}'")
+            
+            elif choice == '2':
+                phone = input("Phone number to delete: ").strip()
+                confirm = input(f"Delete contact with phone '{phone}'? (y/n): ").strip().lower()
+                if confirm == 'y':
+                    cur.execute("SELECT * FROM search_by_pattern(%s)", (phone,))
+                    to_delete = cur.fetchall()
+                    
+                    if to_delete:
+                        for contact in to_delete:
+                            try:
+                                cur.execute("DELETE FROM phonebook WHERE id = %s", (contact[0],))
+                            except:
+                                cur.execute("SELECT delete_contact_by_id(%s)", (contact[0],))
+                        conn.commit()
+                        print(f"\n✅ Deleted {len(to_delete)} contact(s):")
+                        for contact in to_delete:
+                            print(f"   - {contact[1]} {contact[2] or ''} | {contact[3]}")
+                    else:
+                        print(f"\n❌ No contacts found with phone '{phone}'")
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        conn.rollback()
     finally:
         conn.close()
-
 
 
 def menu():
