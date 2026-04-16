@@ -1,3 +1,0 @@
-Laptop,2
-Mouse,7
-Monitor,4
