@@ -1,0 +1,28 @@
+[
+  {
+    "first_name": "Alice",
+    "last_name": "Johnson",
+    "email": "alice@gmail.com",
+    "birthday": "1995-04-12",
+    "group": "Friend",
+    "phones": [
+      {
+        "phone": "+7 701 111 2233",
+        "type": "mobile"
+      }
+    ]
+  },
+  {
+    "first_name": "Bob",
+    "last_name": "Smith",
+    "email": "bob@work.com",
+    "birthday": "1988-07-23",
+    "group": "Work",
+    "phones": [
+      {
+        "phone": "+7 702 333 4455",
+        "type": "work"
+      }
+    ]
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "first_name": "azamat",
+    "last_name": null,
+    "email": null,
+    "birthday": null,
+    "group": "Family",
+    "phones": []
+  },
+  {
+    "first_name": "Arslan",
+    "last_name": "Zhumalin",
+    "email": "arslan08@mail.ru",
+    "birthday": "2008-08-04",
+    "group": "Friend",
+    "phones": [
+      {
+        "phone": "87754561235",
+        "type": "mobile"
+      },
+      {
+        "phone": "87711234545",
+        "type": "work"
+      }
+    ]
+  }
+]

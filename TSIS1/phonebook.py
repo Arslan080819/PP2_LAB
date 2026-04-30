@@ -35,17 +35,61 @@ def print_contacts_with_phones(rows):
         if phone:
             print(f"       Phone   : {phone}  ({ptype or '?'})")
     print("-" * 65)
-
 def setup_schema():
     conn = get_connection()
     cur = conn.cursor()
-    with open("c:/Users/admin/Desktop/PP2/TSIS1/schema.sql", "r") as f:
-        cur.execute(f.read())
-    conn.commit()
-    cur.close()
-    conn.close()
-    print("Schema applied successfully.")
-
+    
+    # schema.sql файлын ағымдағы каталогтан іздеу
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    schema_path = os.path.join(script_dir, "schema.sql")
+    
+    try:
+        with open(schema_path, "r", encoding="utf-8") as f:
+            sql = f.read()
+            cur.execute(sql)
+        conn.commit()
+        print("Schema applied successfully.")
+    except FileNotFoundError:
+        print(f"Error: schema.sql not found at {schema_path}")
+        print("Creating tables directly...")
+        # Тікелей SQL орындау
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id   SERIAL PRIMARY KEY,
+                name VARCHAR(50) UNIQUE NOT NULL
+            );
+            
+            INSERT INTO groups (name) VALUES
+                ('Family'), ('Work'), ('Friend'), ('Other')
+            ON CONFLICT (name) DO NOTHING;
+            
+            CREATE TABLE IF NOT EXISTS contacts (
+                id           SERIAL PRIMARY KEY,
+                first_name   VARCHAR(100) NOT NULL,
+                last_name    VARCHAR(100),
+                phone_number VARCHAR(20),
+                email        VARCHAR(255),
+                birthday     DATE,
+                group_id     INTEGER REFERENCES groups(id) ON DELETE SET NULL,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            CREATE TABLE IF NOT EXISTS phones (
+                id         SERIAL PRIMARY KEY,
+                contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+                phone      VARCHAR(20) NOT NULL,
+                type       VARCHAR(10) CHECK (type IN ('home', 'work', 'mobile'))
+            );
+        """)
+        conn.commit()
+        print("Tables created successfully!")
+    except Exception as e:
+        print(f"Error: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
 def add_contact():
     print("\n--- Add New Contact ---")
     first = input("First name: ").strip()
@@ -292,32 +336,71 @@ def import_from_json():
     filename = input("JSON filename (default: contacts.json): ").strip()
     if not filename:
         filename = "contacts.json"
+    
+    # Файлды ағымдағы каталогтан іздеу
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filepath = os.path.join(script_dir, filename)
+    
     try:
-        with open(filename, "r", encoding="utf-8") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
-        print(f"File '{filename}' not found.")
-        return
+        print(f"File '{filename}' not found at {filepath}")
+        print("Creating sample contacts.json file...")
+        # Үлгі JSON файлын жасау
+        sample_data = [
+            {
+                "first_name": "Alice",
+                "last_name": "Johnson",
+                "email": "alice@gmail.com",
+                "birthday": "1995-04-12",
+                "group": "Friend",
+                "phones": [{"phone": "+7 701 111 2233", "type": "mobile"}]
+            },
+            {
+                "first_name": "Bob",
+                "last_name": "Smith",
+                "email": "bob@work.com",
+                "birthday": "1988-07-23",
+                "group": "Work",
+                "phones": [{"phone": "+7 702 333 4455", "type": "work"}]
+            }
+        ]
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(sample_data, f, indent=2, ensure_ascii=False)
+        print(f"Created sample {filename} with {len(sample_data)} contacts.")
+        data = sample_data
+    
     conn = get_connection()
     cur = conn.cursor()
     added = 0
     skipped = 0
+    
     for item in data:
         first = item.get("first_name", "").strip()
-        last  = item.get("last_name", "").strip() or None
+        last = item.get("last_name", "").strip() or None
+        
         if not first:
+            print(f"  Warning: Skipping item with empty first_name: {item}")
             continue
-        cur.execute(
-            "SELECT id FROM contacts WHERE first_name ILIKE %s AND (last_name ILIKE %s OR last_name IS NULL)",
-            (first, last or "")
-        )
+            
+        # Контакт бар ма тексеру
+        if last:
+            cur.execute("SELECT id FROM contacts WHERE first_name ILIKE %s AND last_name ILIKE %s", (first, last))
+        else:
+            cur.execute("SELECT id FROM contacts WHERE first_name ILIKE %s AND last_name IS NULL", (first,))
+        
         existing = cur.fetchone()
         if existing:
             answer = input(f"  '{first} {last or ''}' already exists. [s]kip or [o]verwrite? ").strip().lower()
             if answer != "o":
                 skipped += 1
                 continue
+            # Өшіріп, қайта жазу
             cur.execute("DELETE FROM contacts WHERE id = %s", (existing[0],))
+        
+        # Group алу
         group_name = item.get("group")
         group_id = None
         if group_name:
@@ -327,20 +410,36 @@ def import_from_json():
                 cur.execute("INSERT INTO groups (name) VALUES (%s) RETURNING id", (group_name,))
                 g = cur.fetchone()
             group_id = g[0]
+        
+        # Birthday тексеру
+        birthday = item.get("birthday")
+        if birthday and birthday.strip():
+            birthday = birthday.strip()
+        else:
+            birthday = None
+            
+        # Contact қосу
         cur.execute(
             """
             INSERT INTO contacts (first_name, last_name, email, birthday, group_id)
             VALUES (%s, %s, %s, %s, %s) RETURNING id
             """,
-            (first, last, item.get("email"), item.get("birthday"), group_id)
+            (first, last, item.get("email"), birthday, group_id)
         )
         contact_id = cur.fetchone()[0]
+        
+        # Phone қосу
         for ph in item.get("phones", []):
-            cur.execute(
-                "INSERT INTO phones (contact_id, phone, type) VALUES (%s, %s, %s)",
-                (contact_id, ph.get("phone"), ph.get("type"))
-            )
+            phone_num = ph.get("phone", "").strip()
+            phone_type = ph.get("type", "mobile").strip().lower()
+            if phone_num:
+                cur.execute(
+                    "INSERT INTO phones (contact_id, phone, type) VALUES (%s, %s, %s)",
+                    (contact_id, phone_num, phone_type)
+                )
         added += 1
+        print(f"  Added: {first} {last or ''}")
+    
     conn.commit()
     cur.close()
     conn.close()
@@ -351,32 +450,55 @@ def import_from_csv():
     filename = input("CSV filename (default: contacts.csv): ").strip()
     if not filename:
         filename = "contacts.csv"
+    
+    # Файлды ағымдағы каталогтан іздеу
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    filepath = os.path.join(script_dir, filename)
+    
     try:
-        f = open(filename, newline="", encoding="utf-8")
+        f = open(filepath, newline="", encoding="utf-8")
     except FileNotFoundError:
-        print(f"File '{filename}' not found.")
+        print(f"File '{filename}' not found at {filepath}")
+        print(f"Please place {filename} in: {script_dir}")
         return
+    
     conn = get_connection()
     cur = conn.cursor()
     added = 0
     skipped = 0
+    
     reader = csv.DictReader(f)
+    
     for row in reader:
-        first = (row.get("first_name") or row.get("name") or "").strip()
-        last  = row.get("last_name", "").strip() or None
-        phone = row.get("phone", "").strip()
+        # CSV бағандарын оқу
+        first = row.get('first_name', '')
         if not first:
+            first = row.get('name', '').strip()
+        else:
+            first = first.strip()
+            
+        last = row.get('last_name', '').strip() or None
+        phone = row.get('phone', '').strip()
+        
+        if not first:
+            print(f"  Warning: Skipping row with empty name")
             continue
-        phone_type = row.get("phone_type", "mobile").strip().lower()
+            
+        phone_type = row.get('phone_type', 'mobile').strip().lower()
         if phone_type not in ("home", "work", "mobile"):
             phone_type = "mobile"
-        email      = row.get("email", "").strip() or None
-        birthday   = row.get("birthday", "").strip() or None
-        group_name = row.get("group", "").strip() or None
+        email = row.get('email', '').strip() or None
+        birthday = row.get('birthday', '').strip() or None
+        group_name = row.get('group', '').strip() or None
+        
+        # Дубликат тексеру
         cur.execute("SELECT id FROM contacts WHERE first_name ILIKE %s", (first,))
         if cur.fetchone():
             skipped += 1
+            print(f"  Skipping duplicate: {first}")
             continue
+            
         group_id = None
         if group_name:
             cur.execute("SELECT id FROM groups WHERE name ILIKE %s", (group_name,))
@@ -385,20 +507,24 @@ def import_from_csv():
                 cur.execute("INSERT INTO groups (name) VALUES (%s) RETURNING id", (group_name,))
                 g = cur.fetchone()
             group_id = g[0]
+            
         cur.execute(
             """
             INSERT INTO contacts (first_name, last_name, phone_number, email, birthday, group_id)
             VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
             """,
-            (first, last, phone or None, email, birthday, group_id)
+            (first, last, phone if phone else None, email, birthday, group_id)
         )
         contact_id = cur.fetchone()[0]
+        
         if phone:
             cur.execute(
                 "INSERT INTO phones (contact_id, phone, type) VALUES (%s, %s, %s)",
                 (contact_id, phone, phone_type)
             )
         added += 1
+        print(f"  Added: {first}")
+        
     conn.commit()
     cur.close()
     conn.close()

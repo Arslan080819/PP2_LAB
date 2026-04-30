@@ -22,7 +22,6 @@ BEGIN
 END;
 $$;
 
-
 -- 2. move_to_group
 CREATE OR REPLACE PROCEDURE move_to_group(
     p_contact_name VARCHAR,
@@ -60,8 +59,7 @@ BEGIN
 END;
 $$;
 
-
--- 3. search_contacts  (searches name, email, and all phones)
+-- 3. search_contacts
 CREATE OR REPLACE FUNCTION search_contacts(p_query TEXT)
 RETURNS TABLE (
     contact_id INTEGER,
@@ -98,8 +96,7 @@ BEGIN
 END;
 $$;
 
-
--- 4. get_contacts_page  (paginated listing)
+-- 4. get_contacts_page
 CREATE OR REPLACE FUNCTION get_contacts_page(p_limit INT, p_offset INT)
 RETURNS TABLE (
     contact_id INTEGER,
